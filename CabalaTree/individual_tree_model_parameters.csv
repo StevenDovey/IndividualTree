@@ -1,0 +1,63 @@
+Category,Name,Units,Value,Source,Description
+A - Run Input,stemincmonth,m3/ha,varies,stand model,Monthly stem volume increment passed from stand model
+A - Run Input,ggrossmonth,t C/ha,varies,stand model,Monthly gross photosynthesis from stand model
+A - Run Input,Rcrmonthin,t C/ha,varies,stand model,Monthly coarse root respiration
+A - Run Input,Rbmonthin,t C/ha,varies,stand model,Monthly branch respiration
+A - Run Input,Rfmonthin,t C/ha,varies,stand model,Monthly foliage respiration
+A - Run Input,Rfrmonthin,t C/ha,varies,stand model,Monthly fine root respiration
+A - Run Input,Rsmonthin,t C/ha,varies,stand model,Monthly stem respiration
+A - Run Input,aetmonth,mm,varies,water balance,Monthly actual evapotranspiration
+A - Run Input,qmonth,MJ/m2,varies,climate,Monthly solar radiation
+A - Run Input,greenht,m,varies,stand model,Green crown base height (self-pruning / pruning lift)
+A - Run Input,L,m2/m2,varies,stand model,Stand leaf area index
+A - Run Input,vol,m3/ha,varies,stand model,Stand total stem volume
+A - Run Input,spha,stems/ha,varies,stand model,Current stocking density
+A - Run Input,ht,m,varies,stand model,Stand mean height
+A - Run Input,wf,t/ha,varies,stand model,Stand foliage mass
+A - Run Input,Wssw,t/ha,varies,stand model,Stem sapwood mass
+A - Run Input,Wshw,t/ha,varies,stand model,Stem heartwood mass
+A - Run Input,Wb,t/ha,varies,stand model,Branch sapwood mass
+A - Run Input,Wcr,t/ha,varies,stand model,Coarse root total mass
+A - Run Input,Wcrsw,t/ha,varies,stand model,Coarse root sapwood mass
+A - Run Input,Wcrhw,t/ha,varies,stand model,Coarse root heartwood mass
+A - Run Input,Wfr,t/ha,varies,stand model,Fine root mass
+A - Run Input,lat,degrees,varies,site file,Site latitude
+A - Run Input,dayOfYear,integer,varies,climate,Day of year (mid-month representative day)
+A - Run Input,interRow,m,varies,regime/spacing,Current inter-row spacing (updates after thinning)
+A - Run Input,intraRow,m,varies,regime/spacing,Current intra-row spacing (updates after thinning)
+A - Run Input,initInterRow,m,varies,regime/planting,Initial inter-row spacing at planting (fixed)
+A - Run Input,initIntraRow,m,varies,regime/planting,Initial intra-row spacing at planting (fixed)
+B - Model Parameter,crownRatio,-,2.0,Pradiata2010#4_Feb2023.json (crownratio),Crown width to tree height ratio (dimensionless)
+B - Model Parameter,k,-,0.5,Pradiata2010#4_Feb2023.json (k),Light extinction coefficient
+B - Model Parameter,theta,-,0.9,Pradiata2010#4_Feb2023.json (theta),Light response curve curvature (non-rectangular hyperbola)
+B - Model Parameter,branchangle,degrees,45.0,Pradiata2010#4_Feb2023.json (branchangle),Branch angle from vertical
+B - Model Parameter,branchTaper,-,1.3,Pradiata2010#4_Feb2023.json (branchtaper),Branch taper factor
+B - Model Parameter,density,t/m3,0.425,Pradiata2010#4_Feb2023.json (density),Wood density
+B - Model Parameter,beta1,-,0.41,Pradiata2010#4_Feb2023.json (beta1),Volume allometry coefficient 1
+B - Model Parameter,beta2,-,0.76,Pradiata2010#4_Feb2023.json (beta2),Volume allometry coefficient 2
+B - Model Parameter,beta3,-,1.12,Pradiata2010#4_Feb2023.json (beta3),Volume allometry coefficient 3
+B - Model Parameter,wfAlloc1ForCalc (Wf1),-,1.5,Pradiata2010#4_Feb2023.json (Wfalloc1),Foliage allocation constant
+B - Model Parameter,Wfalloc2 (Wf2),-,0.9,Pradiata2010#4_Feb2023.json (Wfalloc2),LAI exponent in foliage allocation
+B - Model Parameter,Wfalloc3 (Wf3),-,0.4,Pradiata2010#4_Feb2023.json (Wfalloc3),Height exponent in foliage allocation
+B - Model Parameter,alpha0 (quantum efficiency layer 1),-,0.050,Pradiata2010#4_Feb2023.json (alpha0),Quantum efficiency layer 1
+B - Model Parameter,alpha1 (quantum efficiency layer 2),-,0.016,Pradiata2010#4_Feb2023.json (alpha1),Quantum efficiency layer 2
+B - Model Parameter,aoptstar (Amax layer 1),umol/m2/s,40.0,Pradiata2010#4_Feb2023.json (aoptstar),Maximum photosynthetic rate layer 1
+B - Model Parameter,rC (respC),-,0.25,Pradiata2010#4_Feb2023.json (respC),Carbon use efficiency ratio
+B - Model Parameter,West1,-,81.9,Pradiata2010#4_Feb2023.json (West1),West allometry coefficient 1 (H:D ratio)
+B - Model Parameter,West2,-,-0.29,Pradiata2010#4_Feb2023.json (West2),West allometry coefficient 2 (crown ratio exponent)
+B - Model Parameter,West3,-,-0.12,Pradiata2010#4_Feb2023.json (West3),West allometry coefficient 3 (biomass exponent)
+B - Model Parameter,wSx1000,t/ha,600.0,Pradiata2010#4_Feb2023.json (wSx1000),Self-thinning: max stem mass at 1000 stems/ha
+B - Model Parameter,varscalar,-,0.3,Pradiata2010#4_Feb2023.json (varscalar),Inter-tree productivity variability scalar
+B - Model Parameter,varscalarself,-,0.5,Pradiata2010#4_Feb2023.json (varscalarself),Self pollination productivity variability scalar
+B - Model Parameter,percentselfs,%,30.0,Pradiata2010#4_Feb2023.json (percentselfs),Percentage of self-pollinated trees
+B - Model Parameter,performself,-,0.7,Pradiata2010#4_Feb2023.json (performself),Productivity of self-pollinated trees relative to cross-pollinated
+B - Model Parameter,seedvar,-,0.3,Pradiata2010#4_Feb2023.json (seedvar),Coefficient of variation of initial height distribution
+B - Model Parameter,bnormdistseed,-,-1.0,Pradiata2010#4_Feb2023.json (bnormdistseed),Use normal distribution for heights (-1=true / 0=false)
+B - Model Parameter,monthcstarve,months,80.0,Pradiata2010#4_Feb2023.json (monthcstarve),"Months of negative carbon balance before tree mortality. NOTE: C# default is 36 (CCabala.cs line 506) but JSON value 80 overwrites it at runtime. Use 80 for Radiata pine."
+B - Model Parameter,Gamma (CO2 compensation),umol/mol,2000000,Hard-coded constant CCabala.cs line 639,CO2 compensation point constant
+B - Model Parameter,dmc (dry matter conversion),-,30,Hard-coded constant CCabala.cs line 640,Dry matter conversion factor
+B - Model Parameter,rowdirection,degrees,varies,regime file,Row orientation angle from north
+B - Model Parameter,rowsblock,integer,varies,regime file,Number of tree rows per planting block
+B - Model Parameter,colsblock,integer,varies,regime file,Number of tree columns per planting block
+B - Model Parameter,interbay,m,varies,regime file,Gap distance between bays (rows)
+B - Model Parameter,interblock,m,varies,regime file,Gap distance between blocks (columns)

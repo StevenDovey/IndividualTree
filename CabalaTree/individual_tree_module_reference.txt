@@ -1,0 +1,597 @@
+================================================================================
+CABALA-W  —  INDIVIDUAL TREE MODULE
+Reference document for design comparison
+Source file: engine/Engine/CCabala.cs
+================================================================================
+
+--------------------------------------------------------------------------------
+SECTION A: INPUTS REQUIRED BY THE INDIVIDUAL TREE MODULE
+--------------------------------------------------------------------------------
+
+STAND-LEVEL STATE VARIABLES  (supplied by main simulation loop)
+  ht              Stand mean height (m)
+  vol             Stand total stem volume (m³/ha)
+  spha            Stems per hectare (stocking density)
+  ba              Stand basal area (m²/ha)
+  L               Stand leaf area index (m² leaf / m² ground)
+  greenht         Height of the base of the live canopy (m)  — rising over time
+  wf              Stand foliage biomass (t/ha)
+  Wb              Stand branch biomass (t/ha)
+  Wssw            Stand stem sapwood biomass (t/ha)
+  Wshw            Stand stem heartwood biomass (t/ha)
+  Wbk             Stand bark biomass (t/ha)
+  Wcr             Stand coarse root biomass (t/ha)
+  stemincmonth    Monthly stem volume increment (m³/ha)
+  htinclast       Previous-step height increment per tree (m)  — used to limit
+                  crown width expansion rate
+
+SPATIAL GRID CONFIGURATION  (set at initialisation)
+  rowsblock       Number of tree rows in each planting block
+  colsblock       Number of tree columns in each planting block
+  interRow        Row spacing (m)
+  intraRow        Within-row spacing (m)
+  interbay        Bay spacing between blocks (m)  — may equal interRow
+  interblock      Block spacing (m)  — may equal intraRow
+  rowdirection    Compass bearing of the planting rows (degrees)
+  lat             Site latitude (degrees, for solar geometry)
+
+SPECIES PARAMETERS  (constants read from species/site parameter files)
+  seedvar         Coefficient of variation of seedling heights (default ≈ 0.3)
+  bnormdistseed   Flag: TRUE = normal height distribution; FALSE = uniform
+  crownRatio      Maximum ratio of crown length to tree height
+  k               Light extinction coefficient (Beer-Lambert; typically 0.3–0.8)
+  beta1           Volume equation scaling coefficient
+  beta2           Volume–height exponent
+  beta3           Volume–basal area exponent
+  density         Wood basic density (t/m³)
+  Wfalloc1        Sapwood area allometry: scaling coefficient
+  Wfalloc2        Sapwood area allometry: leaf area exponent
+  Wfalloc3        Sapwood area allometry: height exponent
+  branchTaper     Branch taper ratio (dimensionless)
+  branchangle     Mean branch insertion angle (degrees)
+  West1           West (1998) H/D allometry: scaling intercept (≈ 1.3)
+  West2           West (1998) H/D allometry: foliage–structure ratio exponent (≈ −0.22)
+  West3           West (1998) H/D allometry: total biomass exponent (≈ −0.136)
+  wSx1000         Self-thinning boundary: maximum average stem mass at
+                  1000 stems/ha (kg/stem)
+
+DAILY WEATHER DRIVERS  (used in solar geometry / shading loop)
+  dayOfYear       Day of year (1–365)
+  qmonth          Monthly incident photosynthetically active radiation (MJ/m²/month)
+
+NEIGHBOUR ARRAYS  (computed from spatial grid at each timestep)
+  dneighbours[0:7]    Distance from target tree to each of 8 neighbours (m)
+  hneighbours[0:7]    Height of each neighbour (m)
+  cneighbours[0:7]    Crown half-width of each neighbour (m)
+  lneighbours[0:7]    Leaf area of each neighbour (m²)
+  baseangle[0:7]      Compass bearing from target tree to each neighbour (degrees)
+
+PER-TREE STATE ARRAYS  (maintained as 2-D grids, rows × columns)
+  treeht[row,col]          Current height of each tree (m)
+  treehtlast[row,col]      Height at previous timestep (m)
+  treediam[row,col]        Stem diameter at breast height (m)
+  treediamlast[row,col]    Diameter at previous timestep (m)
+  treevol[row,col]         Individual stem volume (m³/stem)
+  treesurvive[row,col]     Survival flag: 1 = alive, 0 = dead
+  treesurvivelast[row,col] Survival flag at previous timestep
+  treecrownwidth[row,col]  Crown radius at widest point (m)
+  treecrownwidthlast[row,col]  Crown width at previous timestep (m)
+  treelcrown[row,col]      Crown length from apex to green crown base (m)
+  treecrownvol[row,col]    Crown volume (m³, ellipsoid)
+  treelisthtod[row,col]    Height-to-diameter ratio for this tree
+  treelisthtodlast[row,col] H/D ratio at previous timestep
+  leafarea[row,col]        Leaf area of this tree (m²/tree)
+  alloctree[row,col]       Carbon allocation fraction for this tree
+  treecbalyear[row,col]    Annual carbon balance for this tree
+  treeflag[row,col]        Mortality cause flag (0 = alive, 1 = overtopped)
+
+--------------------------------------------------------------------------------
+SECTION B: CODE BLOCKS  (with line numbers in CCabala.cs)
+--------------------------------------------------------------------------------
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 1 — Gaussian random deviate generator (Box-Muller method)
+Lines 9306–9327
+════════════════════════════════════════════════════════════════════════════════
+Called by the height disaggregation blocks to draw random deviates
+from a standard normal N(0,1) distribution.
+
+private double gasdev()
+{
+    double gasdevRet = default;
+    double r, v1, v2, fac;
+
+    // generates a random deviate with zero mean and unit variance
+    do
+    {
+        v1 = 2d * (0.5d - VBMath.Rnd(1f));
+        v2 = 2d * (0.5d - VBMath.Rnd(1f));
+        r = Pow(v1, 2d) + Pow(v2, 2d);
+    }
+    while (r >= 1d);
+
+    fac = Sqrt(-2 * Log(r) / r);
+    gasdevRet = v2 * fac;
+    return gasdevRet;
+}
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 2 — Initial height disaggregation  (first variant, with treesurvive mask)
+Lines 3739–3746
+════════════════════════════════════════════════════════════════════════════════
+Draws each tree's initial height from a distribution centred on the
+stand mean height (ht). seedvar is the coefficient of variation (~0.3).
+treesurvive zeroes out any grid cell with no tree.
+
+if (bnormdistseed)
+{
+    // Normal distribution of heights
+    treeht[row, col] = max(0d, ht + ht * seedvar * gasdev()) * treesurvive[row, col];
+}
+else
+{
+    // Uniform distribution of heights
+    treeht[row, col] = max(0d, ht + ht * (0.5d - seedvar * VBMath.Rnd())) * treesurvive[row, col];
+}
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 3 — Initial height disaggregation  (second variant, replanting / reset)
+Lines 3894–3901
+════════════════════════════════════════════════════════════════════════════════
+As Block 2 but used during coppice or replanting reinitialisation
+(treesurvive mask not applied here — applied separately).
+
+if (bnormdistseed)
+{
+    treeht[row, col] = max(0d, ht + ht * seedvar * gasdev());
+}
+else
+{
+    treeht[row, col] = max(0d, ht + ht * (0.5d - seedvar * VBMath.Rnd()));
+}
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 4 — Crown length per tree
+Line 12679
+════════════════════════════════════════════════════════════════════════════════
+Crown length is the vertical extent of live foliage from apex to the
+stand-level green crown base (greenht). Capped at tree height.
+
+treelcrown[row, col] = max(0d, min(treeht[row, col], treeht[row, col] - greenht));
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 5 — Crown width per tree  (ellipsoid, constrained)
+Lines 12685–12693
+════════════════════════════════════════════════════════════════════════════════
+Crown width cannot shrink, cannot expand faster than the height increment
+allows, cannot exceed crownRatio × height, and cannot exceed the available
+space per tree (derived from stocking).
+
+if (treeht[row, col] > 0d)
+{
+    treecrownwidth[row, col] = max(
+        treecrownwidthlast[row, col],
+        min(
+            treecrownwidthlast[row, col] + 0.5d * htinclast[row, col],
+            0.5d * crownRatio * treeht[row, col],
+            Sqrt(MaxSpaceTree[row, col]) / PI
+        )
+    );
+}
+else
+{
+    treecrownwidth[row, col] = treecrownwidthlast[row, col];
+}
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 6 — Crown volume per tree  (ellipsoid) and accumulation of totals
+Lines 12695–12699
+════════════════════════════════════════════════════════════════════════════════
+Crown is modelled as an ellipsoid with semi-axes:
+  horizontal: treecrownwidth (radius)
+  vertical:   treelcrown / 2
+
+areatree[row, col]     = PI * Pow(treecrownwidth[row, col], 2d);
+totaltreesurfacearea  += areatree[row, col];
+
+treecrownvol[row, col] = 4d / 3d * PI
+                         * (treelcrown[row, col] / 2d)
+                         * Pow(treecrownwidth[row, col], 2d);
+totalcrownvolume      += treecrownvol[row, col];
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 7 — Leaf area distributed proportionally to crown volume
+Lines 12782–12789
+════════════════════════════════════════════════════════════════════════════════
+Each tree's share of the total stand leaf area (L × 10 000 m²/ha)
+is proportional to its fraction of total stand crown volume.
+Dead trees receive zero leaf area.
+
+if (areatree[row, col] > 0d)
+{
+    leafarea[row, col] = treesurvive[row, col]
+                         * L * 10000d
+                         * treecrownvol[row, col] / totalcrownvolume;   // m² per tree
+}
+else
+{
+    leafarea[row, col] = 0d;
+}
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 8 — Hourly light and shading loop  (solar geometry + Beer-Lambert)
+Lines 12712–12761
+════════════════════════════════════════════════════════════════════════════════
+For each hour of the day:
+  1. Solar azimuth and altitude are computed from day-of-year and latitude.
+  2. Incident radiation for that hour is calculated.
+  3. For each of the 8 nearest neighbours, the model tests whether the
+     neighbour's crown falls between the target tree and the sun.
+  4. If shading occurs, Beer-Lambert attenuation is applied using the
+     neighbour's leaf area density (LAD) and the ray path length through
+     the ellipsoidal crown.
+  5. The minimum hourly radiation across all neighbour directions is
+     accumulated as the day's effective radiation for this tree.
+
+for (hhour = 1d; hhour <= 24d; hhour += 1d)
+{
+    getAzimuthAndAlt(hhour, dayOfYear, lat);
+    azimuth = Round(90.0d - azimuth + rowdirection, 0);
+    solaralt = Round(solaralt, 0);
+
+    radnow = (solaralt > 0d) ? lightcalc(ref h, ref hhour, ref qmonth) : 0d;
+    cumrad += radnow;
+
+    var hourtreerad = new double[9];
+    double minhourrad = 99999d;
+
+    for (ii = 0; ii <= 7; ii++)
+    {
+        angleoffset = 180d / PI * Atan(cneighbours[ii] / dneighbours[ii]);
+        anglelower  = baseangle[ii] - angleoffset;
+        angleupper  = baseangle[ii] + angleoffset;
+
+        if (anglelower <= azimuth
+            && azimuth <= angleupper
+            && treeht[row, col] < hneighbours[ii]
+            && dneighbours[ii] < (hneighbours[ii] - treeht[row, col])
+                                 / Tan(solaralt * PI / 180d))
+        {
+            // Neighbour is shading this tree this hour
+            nLad = lneighbours[ii]
+                   / (4d / 3d * PI * Pow(cneighbours[ii], 2d)
+                      * Max(0.0d, hneighbours[ii] - greenht) / 2d);
+
+            pathLength = cneighbours[ii] / Cos(radians(ref solaralt));
+
+            hourtreerad[ii] = radnow * Exp(-k * nLad * pathLength);
+        }
+        else
+        {
+            hourtreerad[ii] = radnow;   // neighbour not in the way
+        }
+
+        if (hourtreerad[ii] < minhourrad)
+            minhourrad = hourtreerad[ii];
+    }
+
+    cumtreerad += minhourrad;
+}
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 9 — Crown radiation factor  (crownfac)
+Line 12764
+════════════════════════════════════════════════════════════════════════════════
+Ratio of radiation received by this tree to unobstructed full-sun radiation.
+Range 0 (fully shaded) to 1 (fully exposed dominant).
+Used to scale photosynthetic production for this tree.
+
+crownfac[row, col] = cumtreerad / cumrad;
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 10 — Sapwood area and per-tree biomass components
+Lines 12793–12810
+════════════════════════════════════════════════════════════════════════════════
+Builds the structural dimensions of each tree from its leaf area and height
+using pipe-model allometry.
+
+  Sapwood area  ∝  (leaf area density)^Wfalloc2  ×  height^Wfalloc3
+  Stem sapwood mass  = sapwood area × (non-crown stem + 1/3 crown stem) × density
+  Coarse root mass   = sapwood area × (crown radius + root depth) / 2 × taper × density
+  Branch mass        = sapwood area × mean branch length × taper × density
+
+if (areatree[row, col] > 0d)
+{
+    Ltree[row, col]    = leafarea[row, col] / areatree[row, col];
+
+    aswtree[row, col]  = Max(0d,
+                             Pow(Ltree[row, col], Wfalloc2)
+                             * wfAlloc1ForCalc
+                             * Pow(treeht[row, col], Wfalloc3)) / spha;
+
+    wswtree[row, col]  = Max(0d,
+                             aswtree[row, col]
+                             * (Max(0.01d, treeht[row, col] - treelcrown[row, col])
+                                + 0.33d * treelcrown[row, col])
+                             * density) / 1000d;
+
+    wcrswtree[row, col] = aswtree[row, col]
+                          * (treecrownwidth[row, col] + rootdepth) / 2d
+                          * branchTaper * density / 1000d;
+
+    TREEBL = meanAllBranchLength(ref treecrownwidth[row, col],
+                                 ref treelcrown[row, col],
+                                 ref treecrownwidth[row, col],
+                                 ref argbtheta);
+
+    wbswtree[row, col] = aswtree[row, col] * TREEBL * branchTaper * density / 1000d;
+}
+else
+{
+    wswtree[row, col]   = 0d;
+    wcrswtree[row, col] = 0d;
+    wbswtree[row, col]  = 0d;
+}
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 11 — Individual tree H/D allometry  (West 1998)
+Lines 13049–13072
+════════════════════════════════════════════════════════════════════════════════
+Each tree's height-to-diameter ratio is derived from its biomass allocation
+state using West's (1998) mechanical-hydraulic allometry.
+
+  treeWestR = (foliage + branch mass fraction) / (stem + bark mass fraction)
+            — the ratio of hydraulically active to structural mass
+
+  treeWestW = total above-ground biomass per tree (g/stem)
+
+  H/D  =  1.3 × treeWestR^(-0.22) × treeWestW^(-0.136)
+
+The ratio is rate-limited to change no more than 2% per month, preventing
+numerical jumps between timesteps.
+
+if (treesurvive[row, col] > 0)
+{
+    if (treevol[row, col] > 0d)
+    {
+        treeWestR = (wf * fratio * 1000d + Wb * fratio * 1000d)
+                    / (treevol[row, col] * density * 1000d + Wbk * sratio * 1000d);
+
+        treeWestW = wf * fratio * 1000d + Wb * fratio * 1000d
+                    + treevol[row, col] * density * 1000d + Wbk * sratio * 1000d;
+
+        treelisthtod[row, col] = 1.3d
+                                 * Pow(treeWestR, -0.22d)
+                                 * Pow(treeWestW, -0.136d);
+
+        // Rate-limit H/D change to 2% per month
+        double ratechangehtod = 0.02d;
+        if (treelisthtod[row, col] < treelisthtodlast[row, col] * (1d - ratechangehtod))
+            treelisthtod[row, col] = treelisthtodlast[row, col] * (1d - ratechangehtod);
+        if (treelisthtod[row, col] > treelisthtodlast[row, col] * (1d + ratechangehtod))
+            treelisthtod[row, col] = treelisthtodlast[row, col] * (1d + ratechangehtod);
+    }
+    else
+    {
+        treelisthtod[row, col] = 1d;
+    }
+}
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 12 — Height and diameter recovery from volume
+Lines 13082–13102
+════════════════════════════════════════════════════════════════════════════════
+Recovers individual tree height from volume using the allometric inversion:
+
+  height = 0.9 × ( vol × spha × (H/D × 200)^(2×β3)
+                   / (β1 × (π × spha)^β3) ) ^ (1 / (β2 + 2×β3))
+
+  diameter = height / H/D / 0.9
+
+If the tree received no carbon allocation this step, height and diameter
+are held at their previous values (no shrinkage allowed).
+treevol is rescaled so that the sum of all individual volumes equals
+the stand total vol.
+
+if (alloctree[row, col] / totalalloc * stemincmonth > 0d)
+{
+    treehtnow = treesurvive[row, col]
+                * Pow(0.9d * treevol[row, col] * spha
+                      * Pow(treelisthtod[row, col] * 200d, 2d * beta3)
+                      / (beta1 * Pow(PI * spha, beta3)),
+                      1d / (beta2 + 2d * beta3));
+
+    treeht[row, col]   = treehtnow;
+    treediam[row, col] = treesurvive[row, col]
+                         * treeht[row, col] / treelisthtod[row, col] / 0.9d;
+}
+else
+{
+    treeht[row, col]   = treehtlast[row, col]   * treesurvive[row, col];
+    treediam[row, col] = treediamlast[row, col] * treesurvive[row, col];
+}
+
+// Rescale individual volumes to be consistent with stand total
+treevol[row, col] = treesurvive[row, col] * treevol[row, col] * vol / cumvol;
+
+// Recompute height and diameter from rescaled volume
+treeht[row, col]   = treesurvive[row, col]
+                     * Pow(0.9d * treevol[row, col] * spha
+                           * Pow(treelisthtod[row, col] * 200d, 2d * beta3)
+                           / (beta1 * Pow(PI * spha, beta3)),
+                           1d / (beta2 + 2d * beta3));
+
+treediam[row, col] = treesurvive[row, col]
+                     * treeht[row, col] / treelisthtod[row, col] / 0.9d;
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 13 — Overtopping mortality
+Lines 13032–13037
+════════════════════════════════════════════════════════════════════════════════
+A tree is killed if 90% of its height is below the green crown base —
+i.e., it has been overtopped and can no longer maintain a live crown
+above the dense shading layer.
+
+if (0.9d * treeht[row, col] < greenht)
+{
+    treesurvive[row, col] = 0;
+    treeflag[row, col]    = 1;
+}
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 14 — Dead tree state reset
+Lines 13139–13164
+════════════════════════════════════════════════════════════════════════════════
+Once a tree is flagged dead (treesurvive = 0), all its per-tree arrays
+are zeroed so it contributes nothing to subsequent stand calculations.
+
+if (treesurvive[row, col] == 0)
+{
+    treevol[row, col]         = 0d;
+    treeht[row, col]          = 0d;
+    treediam[row, col]        = 0d;
+    treehtlast[row, col]      = 0d;
+    treediamlast[row, col]    = 0d;
+    leafarea[row, col]        = 0d;
+    treecrownwidth[row, col]  = 0d;
+    treelcrown[row, col]      = 0d;
+    areatree[row, col]        = 0d;
+    treesurvivelast[row, col] = 0;
+    wswtree[row, col]         = 0d;
+    wshwtree[row, col]        = 0d;
+    wbktree[row, col]         = 0d;
+    wftree[row, col]          = 0d;
+    WfrTree[row, col]         = 0d;
+    wbswtree[row, col]        = 0d;
+    wcrswtree[row, col]       = 0d;
+    wcrhwtree[row, col]       = 0d;
+    treecbalyear[row, col]    = 0d;
+}
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 15 — Self-thinning  (3/2 power law, stand-level)
+Lines 8403–8446
+════════════════════════════════════════════════════════════════════════════════
+Stand-level density-dependent mortality following Yoda's −3/2 self-thinning rule.
+
+  Average stem mass   = (stem sapwood + heartwood) × 1000 / stocking  (g/stem)
+  Maximum stem mass   = wSx1000 × (1000 / stocking)^(3/2)
+  RDI                 = average stem mass / maximum stem mass
+
+When RDI > 1 (stand has exceeded the thinning boundary), trees are removed:
+  stems removed  = stocking − 1000 × (wSx1000 / average stem mass)^(2/3)
+  mass lost      = stems removed × average stem mass × 0.2 / 1000  (t/ha)
+
+Note: two stochastic mortality variants (water-potential-triggered and
+RDI-triggered) are present in the code but commented out — available for
+future activation.
+
+double selfthinpower = 3d / 2d;
+avStemMass = (Wssw + Wshw) * 1000d / effectivestocking;
+wSmax      = wSx1000 * Pow(1000d / effectivestocking, selfthinpower);
+delStemMass = wSmax - avStemMass;
+double RDI  = avStemMass / wSmax;
+
+if (delStemMass < 0d)   // stand is over the thinning boundary
+{
+    delStemNo    = effectivestocking
+                   - 1000d * Pow(wSx1000 / avStemMass, 1d / selfthinpower);
+
+    LostStemMass = delStemNo * avStemMass * 0.2d / 1000d;   // (t/ha)
+}
+
+lossratio = LostStemMass / (Wssw + Wshw);
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 16 — Spacing update after self-thinning
+Lines 8458–8463
+════════════════════════════════════════════════════════════════════════════════
+After trees die from self-thinning, row and within-row spacings are scaled
+upward so that the spatial grid remains consistent with the new lower density.
+Effective stocking is recalculated from the updated spacings.
+
+  new spacing = old spacing × sqrt(old stocking / new stocking)
+
+vol            = vol * (1d - lossratio);
+intraRow       = intraRow * Sqrt(effectivestocking) / Sqrt(effectivestocking - delStemNo);
+interRow       = interRow * Sqrt(effectivestocking) / Sqrt(effectivestocking - delStemNo);
+effectivestocking = 10000d / (intraRow * interRow);
+actualstocking = calcActualStocking(rowsblock, interRow, interbay, colsblock, intraRow, interblock);
+
+
+════════════════════════════════════════════════════════════════════════════════
+BLOCK 17 — Spacing update after per-tree mortality
+Lines 13195–13202
+════════════════════════════════════════════════════════════════════════════════
+After individual-tree mortality (overtopping), stocking and spacings are
+recalculated to reflect the reduced population on the grid.
+
+actualstocking    = spha;
+intraRow          = 10000d / (interRow * actualstocking);
+effectivestocking = 10000d / (intraRow * interRow);
+actualstocking    = calcActualStocking(rowsblock, interRow, interbay, colsblock, intraRow, interblock);
+
+
+--------------------------------------------------------------------------------
+SECTION C: OUTPUTS PRODUCED BY THE INDIVIDUAL TREE MODULE
+--------------------------------------------------------------------------------
+
+PER-TREE OUTPUTS  (2-D arrays, one value per grid cell per timestep)
+
+  treeht[row,col]         Tree height (m)
+  treediam[row,col]       Stem diameter at breast height (m)
+  treevol[row,col]        Individual stem volume (m³/stem)
+  treecrownwidth[row,col] Crown radius at widest point (m)
+  treelcrown[row,col]     Crown length — apex to green crown base (m)
+  treecrownvol[row,col]   Crown volume (m³, ellipsoid model)
+  leafarea[row,col]       Leaf area of this tree (m²/tree)
+  crownfac[row,col]       Crown radiation factor: fraction of full-sun
+                          radiation received (0–1); used to scale
+                          photosynthesis for this tree
+  treelisthtod[row,col]   Height-to-diameter ratio (dimensionless)
+  aswtree[row,col]        Sapwood cross-sectional area per tree (m²/stem)
+  wswtree[row,col]        Stem sapwood biomass per tree (t/stem)
+  wcrswtree[row,col]      Coarse root biomass per tree (t/stem)
+  wbswtree[row,col]       Branch biomass per tree (t/stem)
+  treesurvive[row,col]    Survival status: 1 = alive, 0 = dead
+  treeflag[row,col]       Mortality cause: 0 = alive, 1 = overtopped
+
+STAND-LEVEL DIAGNOSTICS  (scalars, updated each timestep)
+
+  totalcrownvolume        Sum of crown volumes across all surviving trees (m³/ha)
+  totaltreesurfacearea    Sum of crown projected areas (m²/ha)
+  effectivestocking       Current stems per hectare after mortality
+  actualstocking          Effective stocking accounting for bay/block spacing
+  intraRow                Updated within-row spacing (m)
+  interRow                Updated between-row spacing (m)
+  RDI                     Relative Density Index: ratio of actual to maximum
+                          stem mass at current density (dimensionless)
+                          RDI = 1.0 marks the self-thinning boundary
+  delStemNo               Number of stems removed by self-thinning this step
+  lossratio               Fraction of stem biomass lost to self-thinning
+
+NOTE ON ACTIVATION
+The individual tree module is currently inactive in the main simulation
+loop. It is called only when a spatial grid flag is set. All outputs above
+are available once the module is activated. The stand-level model continues
+to produce height, volume, basal area, and stocking without this module —
+the individual-tree arrays add the within-stand size distribution on top.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

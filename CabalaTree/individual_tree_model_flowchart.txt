@@ -1,0 +1,232 @@
+================================================================================
+  CABALA-W  —  INDIVIDUAL TREE MODEL
+  Process Flow Diagram
+================================================================================
+
+  INPUTS FROM STAND MODEL (once per month)
+  ─────────────────────────────────────────
+  Stand mean height · Total stem volume · Total leaf area index (LAI)
+  Stand stocking density · Green crown base height
+  Stand foliage, branch & stem biomass · Solar radiation (monthly)
+  Site latitude · Day of year
+
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  STEP 1 — INITIALISATION  (planting only)                          │
+  │                                                                     │
+  │  Trees are placed on a rectangular grid (rows × columns)           │
+  │                                                                     │
+  │  Each tree draws an initial height from a                          │
+  │  Normal distribution centred on the stand mean height              │
+  │                                                                     │
+  │         h_tree  ~  N( h_stand,  σ = 0.30 × h_stand )             │
+  │                                                                     │
+  │  ▸ 30% coefficient of variation reflects natural variation         │
+  │    in germination timing and micro-site quality                    │
+  │  ▸ Dead grid cells set to zero (establishment mortality)           │
+  └─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  STEP 2 — CROWN GEOMETRY  (each tree, each month)                  │
+  │                                                                     │
+  │  Crown length  =  tree height  −  green crown base height          │
+  │                                                                     │
+  │  Crown width is the larger of:                                     │
+  │    • Last month's width  (crowns never shrink)                     │
+  │    • Last width + ½ × height increment  (expansion rate cap)      │
+  │  And cannot exceed:                                                │
+  │    • ½ × crownRatio × tree height  (shape constraint)             │
+  │    • Available space per tree on the grid  (spacing constraint)    │
+  │                                                                     │
+  │  Crown volume modelled as an ELLIPSOID                             │
+  │                                                                     │
+  │    V_crown  =  (4/3) π  ×  (crown_length/2)  ×  crown_width²     │
+  └─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  STEP 3 — LEAF AREA DISTRIBUTION                                   │
+  │                                                                     │
+  │  Stand total leaf area is shared among trees in proportion         │
+  │  to each tree's fraction of total stand crown volume               │
+  │                                                                     │
+  │    LA_tree  =  LAI × 10 000  ×  V_crown_tree / V_crown_total      │
+  │                                                                     │
+  │  ▸ Dominant trees (larger crowns) capture a disproportionately    │
+  │    larger share of leaf area — SIZE-ASYMMETRIC COMPETITION         │
+  └─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  STEP 4 — LIGHT & SHADING  (hourly solar geometry loop)           │
+  │                                                                     │
+  │  For each hour of the day:                                         │
+  │                                                                     │
+  │    1.  Compute sun azimuth and elevation from                      │
+  │        latitude, day of year, and hour                             │
+  │                                                                     │
+  │    2.  For each of the 8 nearest neighbour trees:                  │
+  │                                                                     │
+  │        Is the neighbour between this tree and the sun?             │
+  │           ├─ NO  →  full radiation reaches this tree              │
+  │           └─ YES →  apply Beer-Lambert attenuation                │
+  │                                                                     │
+  │              Light_through  =  Light_in × exp(−k × LAD × path)    │
+  │                                                                     │
+  │              k    = light extinction coefficient                   │
+  │              LAD  = leaf area density of shading crown             │
+  │              path = ray path length through ellipsoid crown        │
+  │                                                                     │
+  │    3.  Record the MINIMUM radiation across all 8 directions        │
+  │        (worst-case shading in that hour)                           │
+  │                                                                     │
+  │  Sum across all daylight hours  →  daily radiation received        │
+  │                                                                     │
+  │    CROWN RADIATION FACTOR  =  radiation received / full-sun        │
+  │                                                                     │
+  │  Range 0 (fully shaded) → 1 (dominant, unshaded)                  │
+  └─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  STEP 5 — STRUCTURAL ALLOMETRY  (pipe model + West 1998)          │
+  │                                                                     │
+  │  A.  Sapwood cross-sectional area per tree                        │
+  │                                                                     │
+  │        SA  =  Wf1 × (leaf area density)^Wf2 × height^Wf3         │
+  │                                                                     │
+  │      Reflects pipe model: sapwood area must be large enough        │
+  │      to supply water to the leaf area it supports                  │
+  │                                                                     │
+  │  B.  Stem sapwood mass  =  SA × effective stem length × density    │
+  │  C.  Coarse root mass   =  SA × (crown width + root depth) × ...  │
+  │  D.  Branch mass        =  SA × mean branch length × ...          │
+  │                                                                     │
+  │  E.  Height-to-diameter ratio  (West's allometry)                 │
+  │                                                                     │
+  │        H/D  =  1.3 × R^(−0.22) × W^(−0.136)                      │
+  │                                                                     │
+  │        R  =  foliage + branch mass / stem + bark mass             │
+  │               (crown investment vs structural investment)          │
+  │        W  =  total above-ground biomass per stem (g)              │
+  │                                                                     │
+  │      Stockier stems (low H/D) → tree investing heavily in wood    │
+  │      Slender stems (high H/D) → tree investing heavily in foliage │
+  │                                                                     │
+  │      H/D is rate-limited to change no more than 2% per month      │
+  └─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  STEP 6 — HEIGHT AND DIAMETER RECOVERY                             │
+  │                                                                     │
+  │  Volume is scaled to each tree by its carbon allocation fraction   │
+  │                                                                     │
+  │    alloc_tree  ∝  crown radiation factor × crown area             │
+  │                                                                     │
+  │  Height is recovered from volume by inverting the                  │
+  │  stand-level volume equation:                                      │
+  │                                                                     │
+  │    height  =  0.9 × ( vol × N × (H/D × 200)^(2β₃)               │
+  │                       / (β₁ × (π N)^β₃) ) ^ (1/(β₂ + 2β₃))      │
+  │                                                                     │
+  │    β₁, β₂, β₃ = species volume allometry coefficients            │
+  │    N           = stocking density (stems/ha)                       │
+  │    0.9         = stem form factor (taper correction)               │
+  │                                                                     │
+  │    Diameter  =  height / H/D / 0.9                                │
+  │                                                                     │
+  │    ▸ HEIGHT NEVER DECREASES  — if allometry implies a reduction,  │
+  │      height is held and H/D adjusts downward instead              │
+  └─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  STEP 7 — MORTALITY CHECK  (two mechanisms)                        │
+  │                                                                     │
+  │  ── A. OVERTOPPING MORTALITY ──────────────────────────────────── │
+  │                                                                     │
+  │      If  0.9 × tree height  <  green crown base height            │
+  │                                                                     │
+  │      → Tree apex is below the canopy closure level                │
+  │      → Tree receives essentially zero light                        │
+  │      → Tree is killed; all its arrays zeroed                       │
+  │                                                                     │
+  │  ── B. SELF-THINNING MORTALITY (stand level) ──────────────────── │
+  │                                                                     │
+  │      Maximum supportable stem mass follows the −3/2 power law:    │
+  │                                                                     │
+  │        W_max  =  wSx1000 × (1000 / N)^(3/2)                      │
+  │                                                                     │
+  │        RDI  =  actual stem mass / W_max                           │
+  │                                                                     │
+  │      If  RDI  >  1.0  (stand exceeds thinning boundary):          │
+  │                                                                     │
+  │        Stems removed  =  N  −  1000 × (wSx1000/W_actual)^(2/3)   │
+  │                                                                     │
+  │      ▸ The weakest competitors (lowest radiation factor) die first │
+  └─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  STEP 8 — SPACING UPDATE                                           │
+  │                                                                     │
+  │  After any mortality or management thinning, row and               │
+  │  within-row spacings are rescaled:                                 │
+  │                                                                     │
+  │    new spacing  =  old spacing × √(N_old / N_new)                 │
+  │                                                                     │
+  │  Effective stocking recalculated from updated spacings             │
+  │  Remaining trees now have more space, light, and water             │
+  └─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  OUTPUTS  (per tree, per month)                                    │
+  │                                                                     │
+  │  Height (m)          Diameter (m)        Volume (m³/stem)          │
+  │  Crown width (m)     Crown length (m)    Leaf area (m²/tree)       │
+  │  Crown radiation factor (0–1)            Survival status (0/1)     │
+  │  Stem sapwood mass   Branch mass         Coarse root mass          │
+  │                                                                     │
+  │  Stand summaries: effective stocking · RDI · total crown volume    │
+  └─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────┐
+                    │  REPEAT NEXT MONTH       │
+                    │  (Steps 2 → 8)           │
+                    └──────────────────────────┘
+
+
+================================================================================
+  KEY BIOLOGICAL PRINCIPLES EMBEDDED IN THE MODEL
+================================================================================
+
+  SIZE-ASYMMETRIC COMPETITION
+    Larger trees intercept more light (Steps 3 & 4), receive more carbon
+    allocation (Step 6), grow faster, and develop yet larger crowns.
+    This positive feedback drives progressive canopy stratification.
+
+  PIPE MODEL  (Step 5A)
+    Sapwood cross-section must be proportional to the leaf area it supplies.
+    Links crown size to stem taper and root architecture.
+
+  WEST'S ALLOMETRY  (Step 5E)
+    H/D ratio is not fixed — it responds to how a tree allocates biomass
+    between crown (foliage + branches) and structure (wood + bark).
+    Dominants become stockier; suppressed trees are tall and slender.
+
+  YODA'S −3/2 SELF-THINNING RULE  (Step 7B)
+    As density increases, average stem mass must fall along a fixed power-law
+    boundary. This emerges from metabolic scaling constraints and is one of
+    the most robust empirical laws in plant ecology.
+
+  BEER-LAMBERT LIGHT ATTENUATION  (Step 4)
+    The same physics that describes light passing through any absorbing
+    medium — here applied to leaf area density within an ellipsoidal crown.
+    Extinction coefficient k sets how quickly light is absorbed per unit
+    of leaf area along the ray path.
+
+================================================================================
