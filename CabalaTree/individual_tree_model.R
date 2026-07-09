@@ -1,3 +1,4 @@
+#09.07.26 12:56
 # ============================================================
 # CABALA Individual Tree Model -- R transcode of individual_tree_model.cs
 # Source: CabalaTree/individual_tree_model.cs (extracted from CCabala.cs)
@@ -427,9 +428,13 @@ deadtreereset <- function(st, nowrow, nowcol, cumwsw, cumshw, cumwbk, cumwb, cum
   st$Ltree[nowrow, nowcol]     <- 0
   st$treeasw[nowrow, nowcol]   <- 0
   st$treeflag[nowrow, nowcol]  <- 0
-  # NOTE: original resets treecbalyear at [row, col] (the *caller's* loop
-  # indices, not [nowrow, nowcol] -- verbatim quirk of the source, line 828).
-  # Preserved behaviour requires the caller's row/col; handled at call sites.
+  # DEVIATION FROM SOURCE (confirmed, not preserved): original resets
+  # treecbalyear at [row, col] -- the caller's class-level loop indices --
+  # instead of [nowrow, nowcol], the tree actually being killed. This is a
+  # latent bug in CCabala.cs (resets the wrong tree's carbon balance when
+  # called from within a thinning loop). Fixed here to use this function's
+  # own nowrow/nowcol.
+  st$treecbalyear[nowrow, nowcol] <- 0
 
   st
 }
@@ -582,7 +587,6 @@ within_thinning_treatment <- function(st, pars, thinproportion, thinstems, thint
           }
           removedtrees <- removedtrees + 1
           st <- deadtreereset(st, nowrow, nowcol, cumwssw, cumwshw, cumwbk, cumwb, cumwf, cumwcr, cumwfr)
-          st$treecbalyear[nowrow, nowcol] <- 0  # original resets at caller's [row,col]; nearest faithful equivalent here
         }
       }
     }
