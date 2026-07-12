@@ -44,4 +44,4 @@ I work at the BSI. Scion was merged into the BSI. Never reference Scion as a sep
 3. If data is missing or incorrect, let the code fail loudly. Assume all input data is perfect.
 4. DO NOT add custom error messages, start/completion messages, or print notices.
 5. DO NOT add comments referencing these instructions. Keep code completely uncluttered.
-6. DO add a #DD.MM.YY HH:MM (24-hour format NZST) at the top of every script to show when it was last updated.
+6. DO add a #DD.MM.YY V.000x at the top of every script to show when it was last updated. V.000x begins with V.0001 and adds one each time you write to it.
