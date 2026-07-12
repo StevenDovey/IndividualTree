@@ -847,56 +847,68 @@ update_tree_list <- function(st, pars, stemincmonth, ggrossmonth, Rcrmonthin, Rb
         if (Distance >= 100) treecheck <- 1
         if (treecheck == 1) break
       }
-      # top-right
+      # Diagonal neighbour lookups replicate the source exactly, including
+      # its direction-inconsistent boundary handling: some axes wrap
+      # properly (index 0 -> numberrows/numbercols), others fall through to
+      # index 0 for one iteration, which in the C# arrays (fixed size 101,
+      # never written at index 0) silently reads back zero for every field
+      # -- i.e. "no neighbour" -- before resuming from 1 next iteration.
+      # mz() reproduces that zero-fill-at-index-0 read; it is not a fix.
+      mz <- function(mat, r, c) {
+        if (r < 1 || c < 1) 0 else mat[r, c]
+      }
+
+      # top-right: mycol and myrow BOTH fall to 0 (bug); threshold = diagonal
       mycol <- col; myrow <- row; Distance <- 0; treecheck <- 0
       diag <- sqrt(pars$initIntraRow^2 + pars$initInterRow^2)
       repeat {
         mycol <- mycol + 1; myrow <- myrow + 1; Distance <- Distance + diag
-        if (mycol > numbercols) mycol <- numbercols  # NOTE: original sets index to 0 (invalid in C# too, guarded by mycol>numbercols check below); clamped here to stay in range
-        if (myrow > numberows) myrow <- numberows
-        toprightneighbour <- st$TreeNo[myrow, mycol]; dtoprightneighbour <- Distance
-        htoprightneighbour <- st$treehtlast[myrow, mycol]; ltoprightneighbour <- st$leafarea[myrow, mycol]
-        diamtoprightneighbour <- st$treediam[row, mycol]; ctoprightneighbour <- st$treecrownwidth[myrow, mycol]
-        if (st$treesurvive[row, mycol] == 1) treecheck <- 1
+        if (mycol > numbercols) mycol <- 0
+        if (myrow > numberows) myrow <- 0
+        toprightneighbour <- mz(st$TreeNo, myrow, mycol); dtoprightneighbour <- Distance
+        htoprightneighbour <- mz(st$treehtlast, myrow, mycol); ltoprightneighbour <- mz(st$leafarea, myrow, mycol)
+        diamtoprightneighbour <- mz(st$treediam, row, mycol); ctoprightneighbour <- mz(st$treecrownwidth, myrow, mycol)
+        if (mz(st$treesurvive, row, mycol) == 1) treecheck <- 1
         if (Distance >= sqrt(2 * 100^2)) treecheck <- 1
         if (treecheck == 1) break
       }
-      # bottom-right
+      # bottom-right: mycol falls to 0 (bug); myrow wraps properly; threshold = diagonal
       mycol <- col; myrow <- row; Distance <- 0; treecheck <- 0
       repeat {
         mycol <- mycol + 1; myrow <- myrow - 1; Distance <- Distance + diag
-        if (mycol > numbercols) mycol <- numbercols
+        if (mycol > numbercols) mycol <- 0
         if (myrow == 0) myrow <- numberows
-        botrightneighbour <- st$TreeNo[myrow, mycol]; dbotrightneighbour <- Distance
-        hbotrightneighbour <- st$treehtlast[myrow, mycol]; lbotrightneighbour <- st$leafarea[myrow, mycol]
-        diambotrightneighbour <- st$treediam[row, mycol]; cbotrightneighbour <- st$treecrownwidth[myrow, mycol]
-        if (st$treesurvive[row, mycol] == 1) treecheck <- 1
+        botrightneighbour <- mz(st$TreeNo, myrow, mycol); dbotrightneighbour <- Distance
+        hbotrightneighbour <- mz(st$treehtlast, myrow, mycol); lbotrightneighbour <- mz(st$leafarea, myrow, mycol)
+        diambotrightneighbour <- mz(st$treediam, row, mycol); cbotrightneighbour <- mz(st$treecrownwidth, myrow, mycol)
+        if (mz(st$treesurvive, row, mycol) == 1) treecheck <- 1
         if (Distance >= sqrt(2 * 100^2)) treecheck <- 1
         if (treecheck == 1) break
       }
-      # bottom-left
+      # bottom-left: mycol and myrow BOTH wrap properly; threshold = 100 (flat,
+      # despite the diagonal step -- preserved as in source)
       mycol <- col; myrow <- row; Distance <- 0; treecheck <- 0
       repeat {
         mycol <- mycol - 1; myrow <- myrow - 1; Distance <- Distance + diag
         if (mycol == 0) mycol <- numbercols
         if (myrow == 0) myrow <- numberows
-        botleftneighbour <- st$TreeNo[myrow, mycol]; dbotleftneighbour <- Distance
-        hbotleftneighbour <- st$treehtlast[myrow, mycol]; lbotleftneighbour <- st$leafarea[myrow, mycol]
-        diambotleftneighbour <- st$treediam[row, mycol]; cbotleftneighbour <- st$treecrownwidth[myrow, mycol]
-        if (st$treesurvive[row, mycol] == 1) treecheck <- 1
+        botleftneighbour <- mz(st$TreeNo, myrow, mycol); dbotleftneighbour <- Distance
+        hbotleftneighbour <- mz(st$treehtlast, myrow, mycol); lbotleftneighbour <- mz(st$leafarea, myrow, mycol)
+        diambotleftneighbour <- mz(st$treediam, row, mycol); cbotleftneighbour <- mz(st$treecrownwidth, myrow, mycol)
+        if (mz(st$treesurvive, row, mycol) == 1) treecheck <- 1
         if (Distance >= 100) treecheck <- 1
         if (treecheck == 1) break
       }
-      # top-left
+      # top-left: mycol wraps properly; myrow falls to 0 (bug); threshold = 100 (flat)
       mycol <- col; myrow <- row; Distance <- 0; treecheck <- 0
       repeat {
         mycol <- mycol - 1; myrow <- myrow + 1; Distance <- Distance + diag
         if (mycol == 0) mycol <- numbercols
-        if (myrow > numberows) myrow <- numberows
-        topleftneighbour <- st$TreeNo[myrow, mycol]; dtopleftneighbour <- Distance
-        htopleftneighbour <- st$treehtlast[myrow, mycol]; ltopleftneighbour <- st$leafarea[myrow, mycol]
-        diamtopleftneighbour <- st$treediam[row, mycol]; ctopleftneighbour <- st$treecrownwidth[myrow, mycol]
-        if (st$treesurvive[row, mycol] == 1) treecheck <- 1
+        if (myrow > numberows) myrow <- 0
+        topleftneighbour <- mz(st$TreeNo, myrow, mycol); dtopleftneighbour <- Distance
+        htopleftneighbour <- mz(st$treehtlast, myrow, mycol); ltopleftneighbour <- mz(st$leafarea, myrow, mycol)
+        diamtopleftneighbour <- mz(st$treediam, row, mycol); ctopleftneighbour <- mz(st$treecrownwidth, myrow, mycol)
+        if (mz(st$treesurvive, row, mycol) == 1) treecheck <- 1
         if (Distance >= 100) treecheck <- 1
         if (treecheck == 1) break
       }
